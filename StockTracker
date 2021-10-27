@@ -1,0 +1,146 @@
+from bs4 import BeautifulSoup
+import requests
+import time
+import copy
+import smtplib
+try:
+    from ipynb.fs.full.auth import *
+except:
+    import auth.py
+import json
+
+carriers = {
+    "att":    "@mms.att.net",
+    "tmobile": "@tmomail.net",
+    "verizon":  "@vtext.com",
+    "sprint":   "@page.nextel.com"
+}
+
+parties = {
+    "R" : "Republican",
+    "D" : "Democrat",
+    "I" : "Independent"
+}
+
+transaction = {
+    "S" : "Sold",
+    "P" : "Purchased",
+    "E" : "Exchanged"
+}
+
+
+def send(number, message):
+    #Send Text Message
+    server.sendmail(email, number, message)
+
+def main(senateRecent, houseRecent):
+    #Initialize Variables
+    limit = 1000000
+    messageList = []
+    notifySenate = []
+    notifyHouse = []
+    senateList = []
+    houseList = []
+    senateLink = 'https://www.quiverquant.com/sources/senatetrading'
+    houseLink = 'https://www.quiverquant.com/sources/housetrading'
+    #Get Pages with data
+    senatePage = requests.get(senateLink)
+    housePage = requests.get(houseLink)
+    #Parse Data
+    senateSoup = BeautifulSoup(senatePage.content, 'html.parser')
+    houseSoup = BeautifulSoup(housePage.content, 'html.parser')
+    senateListBS4 = senateSoup.find_all('tr')
+    #Convert BS$ elements to Strings and Lists
+    for x in senateListBS4:
+        senateList.append(str(x))
+    houseListBS4 = houseSoup.find_all('tr')
+    for y in houseListBS4:
+        houseList.append(str(y))
+    senateList = senateList[1:]
+    houseList = houseList[1:]
+    #Determine what in the data is noteworthy
+    if(senateRecent in senateList and senateRecent != ""):
+        senateList = senateList[0:senateList.index(senateRecent)]
+    if(houseRecent in houseList and houseRecent != ""):
+        houseList = houseList[0: houseList.index(houseRecent)]
+    for i in range(len(senateList)):
+        if(float(senateList[i][senateList[i].find("$")+1: senateList[i].find(" ", senateList[i].find("$"))].replace(",", "")) >= limit):
+            notifySenate.append(senateList[i])
+    for i in range(len(houseList)):
+        try:
+            if(float(houseList[i][houseList[i].find("$")+1: houseList[i].find("-", houseList[i].find("$"))].replace(",", "")) >= limit):
+                notifyHouse.append(houseList[i])
+        except:
+            if(float(houseList[i][houseList[i].find("$")+1: houseList[i].find("</td>", houseList[i].find("$"))].replace(",", ""))/2 >= limit):
+                notifyHouse.append(houseList[i])
+        
+    
+    #create messages
+    for i in range(len(notifySenate)):
+        list = []    
+        list = notifySenate[i].split("<td>")
+        stock = list[1][list[1].find(">")+1 : list[1].find("</a>")]
+        name = list[3][list[3].find(",")+2 : list[3].find("</td>")] + " " + list[3][0: list[3].find(",")]
+        transactionType = list[4][0 : 1].translate(str.maketrans(transaction))
+        party = list[6][0:1].translate(str.maketrans(parties))
+        if(len(party) == 1):
+            party = "Unknown Party"
+        valueRange = list[5][0 : list[5].find("</td>")]
+        date = list[2][list[2].find("</p>")+4 : list[2].find("</td>")]
+        message = "{0}({1}) {2} {3} of {4} on {5}.".format(name, party, transactionType, valueRange, stock, date)
+        messageList.insert(0, message)
+        
+    for i in range(len(notifyHouse)):
+        list = []    
+        list = notifyHouse[i].split("<td>")
+        stock = list[1][list[1].find(">")+1 : list[1].find("</a>")]
+        name = list[3][0: list[3].find("</td>")]
+        transactionType = list[4][0 : 1].translate(str.maketrans(transaction))
+        party = list[6][0: list[6].find("</td>")]
+        valueRange = list[5][0 : list[5].find("</td>")]
+
+        date = list[2][list[2].find("</p>")+4 : list[2].find("</td>")]
+        message = "{0}({1}) {2} {3} of {4} on {5}.".format(name, party, transactionType, valueRange, stock, date)
+        messageList.insert(0, message)
+        
+    #send messages
+    #for i in range(len(messageList)):
+     #   send("PHONE NUMBER{0}".format(carriers["CARRIER"], messageList[len(messageList)-i])
+     #   time.sleep(20)
+    
+    #reset
+    server.close()
+    
+    if(len(senateList)>0):
+        fs = open("senateRecentStorage.json", "w")
+        json.dump(senateList[0],fs)
+    
+    
+    if(len(houseList)>0):
+        fh = open("houseRecentStorage.json", "w")
+        json.dump(houseList[0],fh)
+    
+    #time.sleep(43200)
+    #server = smtplib.SMTP("smtp.gmail.com", 587)
+    #server.connect("smtp.gmail.com", 587)
+    #server.ehlo()
+    #server.starttls()
+
+    #main(senateList[0], houseList[0])
+
+#connect to smtp server
+server = smtplib.SMTP("smtp.gmail.com", 587)
+server.connect("smtp.gmail.com", 587)
+
+server.ehlo()
+server.starttls()
+
+server.login(email, password)
+fs = open("senateRecentStorage.json", "r")
+fh = open("houseRecentStorage.json", "r")
+
+s = json.load(fs)
+h = json.load(fh)
+fs.close()
+fh.close()
+main(s, h)
